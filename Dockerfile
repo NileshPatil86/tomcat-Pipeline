@@ -8,7 +8,7 @@ ENV TOMCAT_MAJOR_VERSION=9 \
 
 # Install required packages
 RUN yum update -y && \
-    yum install -y java-1.8.0-openjdk wget && \
+    yum install -y java-17.0.8-openjdk wget && \
     yum clean all
 
 # Create a directory for Tomcat installation
