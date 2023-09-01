@@ -1,33 +1,47 @@
-# Use the official Amazon Linux image as the base
-FROM amazonlinux:latest
+#
+# NOTE: THIS DOCKERFILE IS GENERATED VIA "apply-templates.sh"
+#
+# PLEASE DO NOT EDIT IT DIRECTLY.
+#
 
-# Set environment variables for Tomcat version and installation path
-ENV TOMCAT_MAJOR_VERSION=9 \
-    TOMCAT_MINOR_VERSION=9.0.54 \
-    CATALINA_HOME=/opt/tomcat
+FROM eclipse-temurin:11-jre-jammy
 
-# Install required packages
-RUN yum update -y && \
-    yum install -y java-17.0.8-openjdk wget && \
-    yum clean all
+ENV CATALINA_HOME /usr/local/tomcat
+ENV PATH $CATALINA_HOME/bin:$PATH
+RUN mkdir -p "$CATALINA_HOME"
+WORKDIR $CATALINA_HOME
 
-# Create a directory for Tomcat installation
-RUN mkdir -p $CATALINA_HOME
+# let "Tomcat Native" live somewhere isolated
+ENV TOMCAT_NATIVE_LIBDIR $CATALINA_HOME/native-jni-lib
+ENV LD_LIBRARY_PATH ${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$TOMCAT_NATIVE_LIBDIR
 
-# Download and extract Tomcat
-RUN wget -q http://archive.apache.org/dist/tomcat/tomcat-$TOMCAT_MAJOR_VERSION/v$TOMCAT_MINOR_VERSION/bin/apache-tomcat-$TOMCAT_MINOR_VERSION.tar.gz && \
-    tar -xzf apache-tomcat-$TOMCAT_MINOR_VERSION.tar.gz -C $CATALINA_HOME --strip-components=1 && \
-    rm apache-tomcat-$TOMCAT_MINOR_VERSION.tar.gz && \
-    rm -rf $CATALINA_HOME/webapps/*
+# see https://www.apache.org/dist/tomcat/tomcat-8/KEYS
+# see also "versions.sh" (https://github.com/docker-library/tomcat/blob/master/versions.sh)
+ENV GPG_KEYS 05AB33110949707C93A279E3D3EFE6B686867BA6 07E48665A34DCAFAE522E5E6266191C37C037D42 47309207D818FFD8DCD3F83F1931D684307A10A5 541FBE7D8F78B25E055DDEE13C370389288584E7 5C3C5F3E314C866292F359A8F3AD5C94A67F707E 765908099ACF92702C7D949BFA0C35EA8AA299F1 79F7026C690BAA50B92CD8B66A3AD3F4F22C4FED 9BA44C2621385CB966EBA586F72C284D731FABEE A27677289986DB50844682F8ACB77FC2E86E29AC A9C5DF4D22E99998D9875A5110C01C5A2F6059E7 DCFD35E0BF8CA7344752DE8B6FB21E8933C60243 F3A04C595DB5B6A5F1ECA43E3B7BBB100D811BBE F7DA48BB64BCB84ECBA7EE6935CD23C10D498E23
 
-# Expose the default Tomcat port
+ENV TOMCAT_MAJOR 8
+ENV TOMCAT_VERSION 8.5.93
+ENV TOMCAT_SHA512 fdd9bd768c2c8b7f57c75f1a4863bd2bde55e8ea7c8b9cb81427ea8be652540bdcb1ff1cd625b9fb0dd48eb750ebef0f0244d12ac574998d5df3a0d339699bcc
+
+COPY --from=tomcat:8.5.93-jdk11-temurin-jammy $CATALINA_HOME $CATALINA_HOME
+RUN set -eux; \
+	apt-get update; \
+	xargs -rt apt-get install -y --no-install-recommends < "$TOMCAT_NATIVE_LIBDIR/.dependencies.txt"; \
+	rm -rf /var/lib/apt/lists/*
+
+# verify Tomcat Native is working properly
+RUN set -eux; \
+	nativeLines="$(catalina.sh configtest 2>&1)"; \
+	nativeLines="$(echo "$nativeLines" | grep 'Apache Tomcat Native')"; \
+	nativeLines="$(echo "$nativeLines" | sort -u)"; \
+	if ! echo "$nativeLines" | grep -E 'INFO: Loaded( APR based)? Apache Tomcat Native library' >&2; then \
+		echo >&2 "$nativeLines"; \
+		exit 1; \
+	fi
+
 EXPOSE 8080
 
-# Allow Docker user inside the container (optional, for demonstration purposes)
-ARG DOCKER_UID=1000
-ARG DOCKER_GID=1000
-RUN groupadd -g $DOCKER_GID docker && \
-    useradd -u $DOCKER_UID -g $DOCKER_GID -m docker
+# upstream eclipse-temurin-provided entrypoint script caused https://github.com/docker-library/tomcat/issues/77 to come back as https://github.com/docker-library/tomcat/issues/302; use "/entrypoint.sh" at your own risk
+ENTRYPOINT []
 
-# Start Tomcat
-CMD ["$CATALINA_HOME/bin/catalina.sh", "run"]
+CMD ["catalina.sh", "run"]
